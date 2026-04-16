@@ -1,84 +1,90 @@
-# 🔆 Práctica FreeRTOS — Sensores Touch + ESP32
+# Práctica FreeRTOS — Sensores Touch + ESP32
+## Universidad de la Sabana - Internet de las cosas (2026-1) 
+- Laura Camila Rodriguez Leon
+- Andrea Paola Urdaneta Rosales
+- Carlos Augusto Sanchez Lombana
+- Jorge Esteban Diaz Bernal
 
-
-## 🏗️ Arquitectura hipotética del proyecto final
-
-- Camila Leon
-- Andrea Urdaneta
-- Carlos Sanchez
-- Jorge Diaz
-
+## Arquitectura hipotética del proyecto final
 
 ### Descripción del proyecto
-**Sistema IoT de iluminación inteligente** que usa un sensor PIR (movimiento) y un sensor de luz (LDR) conectados a un ESP32. Las luces se encienden solo cuando hay poca luz ambiente **y** hay presencia de personas, y se apagan automáticamente cuando no hay nadie, optimizando el consumo de energía.
+**Sistema IoT de monitoreo de confort ambiental** que utiliza sensores de temperatura, humedad y luz conectados a un ESP32. El sistema mide las condiciones del entorno en tiempo real y calcula un **índice de confort ambiental**, el cual permite determinar si el espacio es adecuado para estudiar o trabajar. Los datos se envían mediante WiFi usando MQTT a un dashboard, donde se visualizan y pueden generar alertas si el confort es bajo.
 
 ---
 
 ### Diagrama de componentes
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          ESP32                                   │
-│                                                                  │
-│  ┌──────────────┐    Queue_PIR     ┌───────────────────────┐    │
-│  │  Tarea       │ ──────────────► │   Tarea               │    │
-│  │  LeerPIR     │                 │   ControlLuz          │    │
-│  │  (T1)        │                 │   (T3)                │    │
-│  └──────────────┘                 │                       │    │
-│                                   │   [Mutex_Relay]       │    │
-│  ┌──────────────┐    Queue_LDR    │   xSemaphoreTake()   │    │
-│  │  Tarea       │ ──────────────► │   → Activa/apaga     │    │
-│  │  LeerLDR     │                 │     relay/LED         │    │
-│  │  (T2)        │                 └───────────────────────┘    │
-│  └──────────────┘                                               │
-│                                                                  │
-│  ┌──────────────┐                 ┌───────────────────────┐    │
-│  │  Tarea       │                 │   Tarea               │    │
-│  │  EnviarMQTT  │ ◄─────────────  │   MonitorEstado       │    │
-│  │  (T5)        │   Queue_Log     │   (T4)                │    │
-│  └──────────────┘                 └───────────────────────┘    │
-│        │                                                         │
-│   [Mutex_Serial]                                                 │
-│   Protege acceso                                                 │
-│   concurrente al                                                 │
-│   puerto serial                                                  │
-└─────────────────────────────────────────────────────────────────┘
-         │
-         ▼
-   Broker MQTT / Dashboard
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                   ESP32                                      │
+│                                                                              │
+│  ┌─────────────────┐        Queue_TempHum        ┌────────────────────────┐  │
+│  │     Tarea       │ ──────────────────────────► │         Tarea          │  │
+│  │   LeerTempHum   │                             │    ProcesarConfort     │  │
+│  │      (T1)       │                             │         (T3)           │  │
+│  └─────────────────┘                             │ - Calcula índice       │  │
+│                                                  │   de confort           │  │
+│  ┌─────────────────┐        Queue_Luz            └───────────┬────────────┘  │
+│  │     Tarea       │ ───────────────────────────────────────►│               │
+│  │     LeerLuz     │                                         │               │
+│  │      (T2)       │                                         ▼               │
+│  └─────────────────┘                                  Queue_Datos            │
+│                                                              │               │
+│                                                              ▼               │
+│  ┌─────────────────┐        Queue_Log         ┌────────────────────────┐     │
+│  │     Tarea       │ ◄─────────────────────── │         Tarea          │     │
+│  │   EnviarMQTT    │                          │     MonitorEstado      │     │
+│  │      (T5)       │                          │         (T4)           │     │
+│  └─────────────────┘                          └────────────────────────┘     │
+│           │                                                                  │
+│           ▼                                                                  │
+│    [ Mutex_Serial ]                                                          │
+│    Protege acceso concurrente                                                │
+│    al puerto serial                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+                         Broker MQTT / Dashboard
 ```
+
+---
+
 
 ---
 
 ### Tareas identificadas
 
 | Tarea | Descripción | Prioridad |
-|-------|-------------|-----------|
-| `LeerPIR` | Lee el sensor PIR cada 200ms y pone el valor en `Queue_PIR` | Alta (3) |
-| `LeerLDR` | Lee el sensor de luz cada 500ms y pone el valor en `Queue_LDR` | Alta (3) |
-| `ControlLuz` | Lee ambas colas y decide si encender/apagar el relay | Media (2) |
-| `MonitorEstado` | Registra eventos (encendido/apagado) en `Queue_Log` | Baja (1) |
-| `EnviarMQTT` | Lee `Queue_Log` y envía datos al broker MQTT por WiFi | Baja (1) |
+|------|-------------|-----------|
+| `LeerTempHum` | Lee temperatura y humedad cada 500ms y envía a `Queue_TempHum` | Alta (3) |
+| `LeerLuz` | Lee nivel de luz cada 500ms y envía a `Queue_Luz` | Alta (3) |
+| `ProcesarConfort` | Calcula el índice de confort con base en sensores | Media (2) |
+| `MonitorEstado` | Registra eventos y estado del confort | Baja (1) |
+| `EnviarMQTT` | Envía datos y eventos al broker MQTT | Baja (1) |
+
+---
 
 ### Colas identificadas
 
 | Cola | Productor | Consumidor | Datos |
 |------|-----------|------------|-------|
-| `Queue_PIR` | `LeerPIR` | `ControlLuz` | `{valor, timestamp}` |
-| `Queue_LDR` | `LeerLDR` | `ControlLuz` | `{lux, timestamp}` |
+| `Queue_TempHum` | `LeerTempHum` | `ProcesarConfort` | `{temp, hum, timestamp}` |
+| `Queue_Luz` | `LeerLuz` | `ProcesarConfort` | `{lux, timestamp}` |
+| `Queue_Datos` | `ProcesarConfort` | `EnviarMQTT` | `{indice, estado}` |
 | `Queue_Log` | `MonitorEstado` | `EnviarMQTT` | `{evento, timestamp}` |
+
+---
 
 ### Recursos compartidos con control de concurrencia
 
 | Recurso | Tipo de control | Razón |
 |---------|----------------|-------|
-| Puerto Serial | Mutex | `LeerPIR` y `LeerLDR` pueden intentar imprimir debug al mismo tiempo |
-| Relay / LED | Mutex | `ControlLuz` y `MonitorEstado` no deben cambiar el estado del relay simultáneamente |
-| Variable `estadoLuz` | Mutex | Variable global leída/escrita por múltiples tareas |
-
+| Puerto Serial | Mutex | Evitar conflictos al imprimir logs |
+| Variables de sensores | Mutex | Acceso concurrente entre tareas |
+| Índice de confort | Mutex | Compartido entre procesamiento y envío |
 ---
 
-## ❓ Preguntas y respuestas
+## Preguntas y respuestas
 
 ---
 
@@ -103,7 +109,7 @@ xTaskCreate(taskReadSensor, "Reader1", 2048, &params1, 2, NULL);
 xTaskCreate(taskReadSensor, "Reader2", 2048, &params2, 2, NULL);
 ```
 
-> ⚠️ Los parámetros deben declararse como `static` o en memoria heap para garantizar que existan durante toda la vida de la tarea.
+>  Los parámetros deben declararse como `static` o en memoria heap para garantizar que existan durante toda la vida de la tarea.
 
 ---
 
@@ -190,9 +196,9 @@ SemaphoreHandle_t mutexA, mutexB;
 // Tarea 1: toma A primero, luego B
 void tarea1(void *p) {
   while (true) {
-    xSemaphoreTake(mutexA, portMAX_DELAY); // ✅ Toma A
+    xSemaphoreTake(mutexA, portMAX_DELAY); // Toma A
     vTaskDelay(pdMS_TO_TICKS(10));
-    xSemaphoreTake(mutexB, portMAX_DELAY); // ❌ Espera B — BLOQUEADO
+    xSemaphoreTake(mutexB, portMAX_DELAY); // Espera B — BLOQUEADO
     // Nunca llega aquí
     xSemaphoreGive(mutexB);
     xSemaphoreGive(mutexA);
@@ -202,9 +208,9 @@ void tarea1(void *p) {
 // Tarea 2: toma B primero, luego A
 void tarea2(void *p) {
   while (true) {
-    xSemaphoreTake(mutexB, portMAX_DELAY); // ✅ Toma B
+    xSemaphoreTake(mutexB, portMAX_DELAY); // Toma B
     vTaskDelay(pdMS_TO_TICKS(10));
-    xSemaphoreTake(mutexA, portMAX_DELAY); // ❌ Espera A — BLOQUEADO
+    xSemaphoreTake(mutexA, portMAX_DELAY); // Espera A — BLOQUEADO
     // Nunca llega aquí
     xSemaphoreGive(mutexA);
     xSemaphoreGive(mutexB);
@@ -218,10 +224,10 @@ void tarea2(void *p) {
   Tarea 1                    Tarea 2
      │                          │
      ▼                          ▼
- Toma mutexA ✅           Toma mutexB ✅
+ Toma mutexA            Toma mutexB 
      │                          │
      ▼                          ▼
- Espera mutexB ⏳ ◄──────► Espera mutexA ⏳
+ Espera mutexB  ◄──────► Espera mutexA 
      │                          │
      ✗ BLOQUEADA               ✗ BLOQUEADA
           ← DEADLOCK →
@@ -334,39 +340,42 @@ void loop() { vTaskDelay(portMAX_DELAY); }
 
 ---
 
-## 📊 Diagrama del sistema de la práctica
+## Diagrama del sistema de la práctica
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        ESP32                             │
-│                                                          │
-│  GPIO4 (Touch1)         GPIO2 (Touch2)                  │
-│       │                       │                         │
-│       ▼                       ▼                         │
-│  ┌──────────┐           ┌──────────┐                    │
-│  │ Reader1  │           │ Reader2  │  ← misma función A │
-│  │ (T1)     │           │ (T2)     │    distintos params │
-│  └────┬─────┘           └────┬─────┘                    │
-│       │                       │                         │
-│       ▼                       ▼                         │
-│   Queue1 (cap:10)        Queue2 (cap:10)                │
-│       │                       │                         │
-│       ▼                       ▼                         │
-│  ┌──────────┐           ┌──────────┐                    │
-│  │ Writer1  │           │ Writer2  │  ← misma función B │
-│  │ (T3)     │           │ (T4)     │    distintos params │
-│  └────┬─────┘           └────┬─────┘                    │
-│       │                       │                         │
-│       └───────────┬───────────┘                         │
-│                   ▼                                      │
-│            [Mutex Serial]                                │
-│            xSemaphoreTake()                             │
-│                   │                                      │
-│                   ▼                                      │
-│             Puerto Serial                               │
-│      {"sensor":1,"value":32,"timestamp":1500}           │
-│      {"sensor":2,"value":28,"timestamp":1502}           │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                  ESP32                                   │
+│                                                                          │
+│   GPIO4 (Touch1)                         GPIO2 (Touch2)                  │
+│         │                                       │                        │
+│         ▼                                       ▼                        │
+│  ┌────────────────┐                     ┌────────────────┐               │
+│  │    Reader1     │                     │    Reader2     │               │
+│  │     (T1)       │                     │     (T2)       │               │
+│  └───────┬────────┘                     └───────┬────────┘               │
+│          │                                      │                        │
+│          ▼                                      ▼                        │
+│   Queue1 (cap:10)                        Queue2 (cap:10)                 │
+│          │                                      │                        │
+│          ▼                                      ▼                        │
+│  ┌────────────────┐                     ┌────────────────┐               │
+│  │    Writer1     │                     │    Writer2     │               │
+│  │     (T3)       │                     │     (T4)       │               │
+│  └───────┬────────┘                     └───────┬────────┘               │
+│          │                                      │                        │
+│          └───────────────────┬──────────────────┘                        │
+│                              ▼                                           │
+│                       [ Mutex Serial ]                                   │
+│                      xSemaphoreTake()                                    │
+│                              │                                           │
+│                              ▼                                           │
+│                        Puerto Serial                                     │
+│         {"sensor":1,"value":32,"timestamp":1500}                         │
+│         {"sensor":2,"value":28,"timestamp":1502}                         │
+│                                                                          │
+│   Nota: Reader1 y Reader2 usan la misma función A con distintos params   │
+│         Writer1 y Writer2 usan la misma función B con distintos params   │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
