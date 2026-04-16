@@ -1,20 +1,15 @@
-/* ============================================================================
-   Sistema de Sensores Touch con FreeRTOS - VERSION FINAL ESTABLE
-   ============================================================================ */
-
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
-// ========================== CONFIGURACIÓN ====================================
 #define SENSOR1_PIN     4
 #define SENSOR2_PIN     27
 
 #define QUEUE_LENGTH    10
 
-// ========================== ESTRUCTURA =======================================
+
 typedef struct {
     uint32_t timestamp;
     uint8_t sensor_id;
@@ -22,16 +17,13 @@ typedef struct {
     bool tocado;
 } SensorData_t;
 
-// ========================== HANDLES ==========================================
 QueueHandle_t xQueue1 = NULL;
 QueueHandle_t xQueue2 = NULL;
 SemaphoreHandle_t xSerialMutex = NULL;
 
-// IDs correctos
 int sensor1_id = 1;
 int sensor2_id = 2;
 
-// ========================== FUNCIÓN A ========================================
 void vTaskSensorReader(void *pvParameters) {
     int sensorId = *((int*)pvParameters);
 
@@ -48,7 +40,6 @@ void vTaskSensorReader(void *pvParameters) {
 
     SensorData_t data;
 
-    // 🔥 Calibración
     int baseline = 0;
     for (int i = 0; i < 10; i++) {
         baseline += touchRead(touchPin);
@@ -56,19 +47,12 @@ void vTaskSensorReader(void *pvParameters) {
     }
     baseline /= 10;
 
-    int umbral = baseline - 300;
+    int umbral = baseline - baseline*0.5;
 
-    Serial.print("Sensor ");
-    Serial.print(sensorId);
-    Serial.print(" baseline: ");
-    Serial.print(baseline);
-    Serial.print(" | umbral: ");
-    Serial.println(umbral);
 
     while (true) {
         int value = touchRead(touchPin);
 
-        // 🔥 Protección contra lecturas inválidas (clave)
         if (value == 0) {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
@@ -85,7 +69,6 @@ void vTaskSensorReader(void *pvParameters) {
     }
 }
 
-// ========================== FUNCIÓN B ========================================
 void vTaskSerialWriter(void *pvParameters) {
     QueueHandle_t xCurrentQueue = (QueueHandle_t)pvParameters;
     SensorData_t receivedData;
@@ -115,7 +98,6 @@ void vTaskSerialWriter(void *pvParameters) {
     }
 }
 
-// ========================== SETUP ============================================
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -126,7 +108,7 @@ void setup() {
     xQueue2 = xQueueCreate(QUEUE_LENGTH, sizeof(SensorData_t));
     xSerialMutex = xSemaphoreCreateMutex();
 
-    // 🔥 FIJAR TODAS LAS TAREAS AL MISMO CORE (SOLUCIÓN CLAVE)
+
     xTaskCreatePinnedToCore(vTaskSensorReader, "Lector1", 4096, &sensor1_id, 2, NULL, 1);
     xTaskCreatePinnedToCore(vTaskSensorReader, "Lector2", 4096, &sensor2_id, 2, NULL, 1);
 
@@ -136,7 +118,6 @@ void setup() {
     Serial.println("Sistema listo!\n");
 }
 
-// ========================== LOOP =============================================
 void loop() {
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
