@@ -3,6 +3,12 @@
 
 ## 🏗️ Arquitectura hipotética del proyecto final
 
+- Camila Leon
+- Andrea Urdaneta
+- Carlos Sanchez
+- Jorge Diaz
+
+
 ### Descripción del proyecto
 **Sistema IoT de iluminación inteligente** que usa un sensor PIR (movimiento) y un sensor de luz (LDR) conectados a un ESP32. Las luces se encienden solo cuando hay poca luz ambiente **y** hay presencia de personas, y se apagan automáticamente cuando no hay nadie, optimizando el consumo de energía.
 
